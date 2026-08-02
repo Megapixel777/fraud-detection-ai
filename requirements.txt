@@ -1,0 +1,15 @@
+pyspark
+pandas
+numpy
+matplotlib
+scikit-learn
+xgboost
+mlflow
+jupyterlab
+notebook
+ipykernel
+pyarrow
+fastapi
+uvicorn
+python-dotenv
+requests

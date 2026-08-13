@@ -12,7 +12,7 @@ os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, when
+from pyspark.sql.functions import col, when, monotonically_increasing_id
 from pyspark.ml.classification import RandomForestClassificationModel
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.functions import vector_to_array
@@ -37,7 +37,9 @@ TOP_10_FEATURES = [
     "V3"
 ]
 
-THRESHOLD = 0.35
+THRESHOLD = 0.20
+
+OUTPUT_PATH = "../data/gold/fraud_predictions"
 
 
 # ==========================
@@ -69,10 +71,23 @@ model = RandomForestClassificationModel.load(
     MODEL_PATH
 )
 
-print("Fraud detection model loaded successfully.")
+
+# ==========================
+# Model Information
+# ==========================
+
+print()
+print("==========================")
+print("MODEL")
+print("==========================")
 print(f"Model path: {MODEL_PATH}")
-print(f"Threshold: {THRESHOLD}")
-print(f"Features: {TOP_10_FEATURES}")
+print(f"Threshold:  {THRESHOLD}")
+print("Features:")
+
+for feature in TOP_10_FEATURES:
+    print(f"  - {feature}")
+
+print("==========================")
 
 
 # ==========================
@@ -91,31 +106,63 @@ assembler = VectorAssembler(
 
 def predict_fraud(transaction_df):
 
-    # Keep the original transaction data
-    original_df = transaction_df
+    # -------------------------------------------------
+    # Create an internal row identifier.
+    #
+    # This prevents duplicated rows when joining the
+    # predictions back to the original transactions.
+    # -------------------------------------------------
 
+    original_df = transaction_df.withColumn(
+        "_prediction_id",
+        monotonically_increasing_id()
+    )
+
+
+    # -------------------------------------------------
     # Select only the features required by the model
-    transaction_features = transaction_df.select(
+    # -------------------------------------------------
+
+    transaction_features = original_df.select(
+        "_prediction_id",
         *TOP_10_FEATURES
     )
 
+
+    # -------------------------------------------------
     # Create feature vector
+    # -------------------------------------------------
+
     features_df = assembler.transform(
         transaction_features
     )
 
-    # Generate prediction
+
+    # -------------------------------------------------
+    # Generate Random Forest prediction
+    # -------------------------------------------------
+
     prediction_df = model.transform(
         features_df
     )
 
+
+    # -------------------------------------------------
     # Extract fraud probability
+    # -------------------------------------------------
+
     prediction_df = prediction_df.withColumn(
         "fraud_probability",
-        vector_to_array(col("probability"))[1]
+        vector_to_array(
+            col("probability")
+        )[1]
     )
 
-    # Apply threshold
+
+    # -------------------------------------------------
+    # Apply validated threshold
+    # -------------------------------------------------
+
     prediction_df = prediction_df.withColumn(
         "final_prediction",
         when(
@@ -124,7 +171,11 @@ def predict_fraud(transaction_df):
         ).otherwise(0.0)
     )
 
-    # Add readable prediction
+
+    # -------------------------------------------------
+    # Add human-readable prediction
+    # -------------------------------------------------
+
     prediction_df = prediction_df.withColumn(
         "prediction_label",
         when(
@@ -133,23 +184,34 @@ def predict_fraud(transaction_df):
         ).otherwise("NORMAL")
     )
 
-    # Return original columns plus predictions
-    #
-    # The prediction dataframe contains the TOP 10 features,
-    # so we join the prediction results back to the original
-    # transaction dataframe.
+
+    # -------------------------------------------------
+    # Keep only the prediction information needed
+    # -------------------------------------------------
+
     prediction_results = prediction_df.select(
-        *TOP_10_FEATURES,
+        "_prediction_id",
         "fraud_probability",
         "final_prediction",
         "prediction_label"
     )
 
-    result = original_df.join(
-        prediction_results,
-        on=TOP_10_FEATURES,
-        how="inner"
+
+    # -------------------------------------------------
+    # Join predictions back to original transactions
+    # using the internal row identifier.
+    # -------------------------------------------------
+
+    result = (
+        original_df
+        .join(
+            prediction_results,
+            on="_prediction_id",
+            how="inner"
+        )
+        .drop("_prediction_id")
     )
+
 
     return result
 
@@ -171,6 +233,7 @@ if __name__ == "__main__":
         print(
             "python predict.py <input_csv_or_spark_path>"
         )
+
         print()
         print("Example:")
         print(
@@ -184,15 +247,15 @@ if __name__ == "__main__":
 
     input_path = sys.argv[1]
 
+
+    # ==========================
+    # Load input data
+    # ==========================
+
     print()
     print(
         f"Loading transactions from: {input_path}"
     )
-
-
-    # ==========================
-    # Read Silver data
-    # ==========================
 
     transactions = (
         spark.read
@@ -200,6 +263,20 @@ if __name__ == "__main__":
         .option("inferSchema", True)
         .csv(input_path)
     )
+
+
+    # ==========================
+    # Input information
+    # ==========================
+
+    print()
+    print("==========================")
+    print("INPUT DATA")
+    print("==========================")
+
+    print(f"Columns: {len(transactions.columns)}")
+
+    transactions.printSchema()
 
 
     # ==========================
@@ -212,12 +289,12 @@ if __name__ == "__main__":
 
 
     # ==========================
-    # Display results
+    # Display predictions
     # ==========================
 
     print()
     print("==========================")
-    print("Fraud Predictions")
+    print("FIRST 20 FRAUD PREDICTIONS")
     print("==========================")
 
     result.select(
@@ -225,21 +302,15 @@ if __name__ == "__main__":
         "final_prediction",
         "prediction_label"
     ).show(
+        20,
         truncate=False
     )
 
 
     # ==========================
-    # Gold output
+    # Gold result
     # ==========================
 
-    output_path = (
-        "../data/gold/fraud_predictions"
-    )
-
-
-    # Select original Silver columns
-    # plus model output columns
     gold_result = result.select(
         *transactions.columns,
         "fraud_probability",
@@ -252,12 +323,17 @@ if __name__ == "__main__":
     # Save Gold
     # ==========================
 
+    print()
+    print("==========================")
+    print("SAVING GOLD")
+    print("==========================")
+
     (
         gold_result
         .write
         .mode("overwrite")
         .option("header", True)
-        .csv(output_path)
+        .csv(OUTPUT_PATH)
     )
 
 
@@ -269,8 +345,10 @@ if __name__ == "__main__":
     print("==========================")
     print("Prediction completed")
     print("==========================")
-    print(f"Input:  {input_path}")
-    print(f"Output: {output_path}")
+    print(f"Model:     {MODEL_PATH}")
+    print(f"Threshold: {THRESHOLD}")
+    print(f"Input:     {input_path}")
+    print(f"Output:    {OUTPUT_PATH}")
     print("==========================")
 
 

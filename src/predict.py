@@ -69,6 +69,11 @@ model = RandomForestClassificationModel.load(
     MODEL_PATH
 )
 
+print("Fraud detection model loaded successfully.")
+print(f"Model path: {MODEL_PATH}")
+print(f"Threshold: {THRESHOLD}")
+print(f"Features: {TOP_10_FEATURES}")
+
 
 # ==========================
 # Feature Assembler
@@ -86,6 +91,9 @@ assembler = VectorAssembler(
 
 def predict_fraud(transaction_df):
 
+    # Keep the original transaction data
+    original_df = transaction_df
+
     # Select only the features required by the model
     transaction_features = transaction_df.select(
         *TOP_10_FEATURES
@@ -101,13 +109,13 @@ def predict_fraud(transaction_df):
         features_df
     )
 
-    # Extract probability of fraud
+    # Extract fraud probability
     prediction_df = prediction_df.withColumn(
         "fraud_probability",
         vector_to_array(col("probability"))[1]
     )
 
-    # Apply optimized threshold
+    # Apply threshold
     prediction_df = prediction_df.withColumn(
         "final_prediction",
         when(
@@ -116,7 +124,34 @@ def predict_fraud(transaction_df):
         ).otherwise(0.0)
     )
 
-    return prediction_df
+    # Add readable prediction
+    prediction_df = prediction_df.withColumn(
+        "prediction_label",
+        when(
+            col("final_prediction") == 1.0,
+            "FRAUD"
+        ).otherwise("NORMAL")
+    )
+
+    # Return original columns plus predictions
+    #
+    # The prediction dataframe contains the TOP 10 features,
+    # so we join the prediction results back to the original
+    # transaction dataframe.
+    prediction_results = prediction_df.select(
+        *TOP_10_FEATURES,
+        "fraud_probability",
+        "final_prediction",
+        "prediction_label"
+    )
+
+    result = original_df.join(
+        prediction_results,
+        on=TOP_10_FEATURES,
+        how="inner"
+    )
+
+    return result
 
 
 # ==========================
@@ -126,18 +161,21 @@ def predict_fraud(transaction_df):
 if __name__ == "__main__":
 
     # ==========================
-    # Check input file
+    # Check input argument
     # ==========================
 
     if len(sys.argv) != 2:
 
+        print()
         print("Usage:")
-        print("python predict.py <input_csv>")
+        print(
+            "python predict.py <input_csv_or_spark_path>"
+        )
         print()
         print("Example:")
         print(
             "python predict.py "
-            "../data/bronze/transaction.csv"
+            "../data/silver/transactions_clean"
         )
 
         spark.stop()
@@ -146,13 +184,14 @@ if __name__ == "__main__":
 
     input_path = sys.argv[1]
 
+    print()
     print(
         f"Loading transactions from: {input_path}"
     )
 
 
     # ==========================
-    # Read Bronze data
+    # Read Silver data
     # ==========================
 
     transactions = (
@@ -173,21 +212,13 @@ if __name__ == "__main__":
 
 
     # ==========================
-    # Add readable prediction
-    # ==========================
-
-    result = result.withColumn(
-        "prediction_label",
-        when(
-            col("final_prediction") == 1.0,
-            "FRAUD"
-        ).otherwise("NORMAL")
-    )
-
-
-    # ==========================
     # Display results
     # ==========================
+
+    print()
+    print("==========================")
+    print("Fraud Predictions")
+    print("==========================")
 
     result.select(
         "fraud_probability",
@@ -199,13 +230,16 @@ if __name__ == "__main__":
 
 
     # ==========================
-    # Prepare Gold data
+    # Gold output
     # ==========================
 
     output_path = (
         "../data/gold/fraud_predictions"
     )
 
+
+    # Select original Silver columns
+    # plus model output columns
     gold_result = result.select(
         *transactions.columns,
         "fraud_probability",
@@ -215,7 +249,7 @@ if __name__ == "__main__":
 
 
     # ==========================
-    # Save Gold data
+    # Save Gold
     # ==========================
 
     (
@@ -235,12 +269,8 @@ if __name__ == "__main__":
     print("==========================")
     print("Prediction completed")
     print("==========================")
-    print(
-        f"Input:  {input_path}"
-    )
-    print(
-        f"Output: {output_path}"
-    )
+    print(f"Input:  {input_path}")
+    print(f"Output: {output_path}")
     print("==========================")
 
 

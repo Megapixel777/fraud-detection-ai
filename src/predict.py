@@ -1,6 +1,7 @@
 import os
 import sys
 
+
 # ==========================
 # Force Spark to use the
 # current Python environment
@@ -100,7 +101,7 @@ def predict_fraud(transaction_df):
         features_df
     )
 
-    # Extract fraud probability
+    # Extract probability of fraud
     prediction_df = prediction_df.withColumn(
         "fraud_probability",
         vector_to_array(col("probability"))[1]
@@ -124,55 +125,129 @@ def predict_fraud(transaction_df):
 
 if __name__ == "__main__":
 
-    # Example transaction
-    transaction = {
-        "V12": -2.312227,
-        "V17": -2.808987,
-        "V16": -1.378318,
-        "V7": -0.881974,
-        "V10": -1.120993,
-        "V14": -4.289254,
-        "V11": -2.770089,
-        "V4": 1.309969,
-        "V9": -0.392049,
-        "V3": 1.165455
-    }
+    # ==========================
+    # Check input file
+    # ==========================
 
-    # Create Spark DataFrame
-    transaction_df = (
-        spark.createDataFrame([transaction])
-        .repartition(1)
+    if len(sys.argv) != 2:
+
+        print("Usage:")
+        print("python predict.py <input_csv>")
+        print()
+        print("Example:")
+        print(
+            "python predict.py "
+            "../data/bronze/transaction.csv"
+        )
+
+        spark.stop()
+        os._exit(1)
+
+
+    input_path = sys.argv[1]
+
+    print(
+        f"Loading transactions from: {input_path}"
     )
 
-    # Generate prediction
+
+    # ==========================
+    # Read Bronze data
+    # ==========================
+
+    transactions = (
+        spark.read
+        .option("header", True)
+        .option("inferSchema", True)
+        .csv(input_path)
+    )
+
+
+    # ==========================
+    # Generate predictions
+    # ==========================
+
     result = predict_fraud(
-        transaction_df
+        transactions
     )
 
-    # Get result
-    prediction = result.select(
+
+    # ==========================
+    # Add readable prediction
+    # ==========================
+
+    result = result.withColumn(
+        "prediction_label",
+        when(
+            col("final_prediction") == 1.0,
+            "FRAUD"
+        ).otherwise("NORMAL")
+    )
+
+
+    # ==========================
+    # Display results
+    # ==========================
+
+    result.select(
         "fraud_probability",
-        "final_prediction"
-    ).first()
+        "final_prediction",
+        "prediction_label"
+    ).show(
+        truncate=False
+    )
 
-    fraud_probability = prediction["fraud_probability"]
-    final_prediction = prediction["final_prediction"]
 
-    # Display result
+    # ==========================
+    # Prepare Gold data
+    # ==========================
+
+    output_path = (
+        "../data/gold/fraud_predictions"
+    )
+
+    gold_result = result.select(
+        *transactions.columns,
+        "fraud_probability",
+        "final_prediction",
+        "prediction_label"
+    )
+
+
+    # ==========================
+    # Save Gold data
+    # ==========================
+
+    (
+        gold_result
+        .write
+        .mode("overwrite")
+        .option("header", True)
+        .csv(output_path)
+    )
+
+
+    # ==========================
+    # Final message
+    # ==========================
+
     print()
     print("==========================")
-    print("Fraud Detection Result")
+    print("Prediction completed")
     print("==========================")
-    print(f"Fraud probability: {fraud_probability:.4f}")
-
-    if final_prediction == 1.0:
-        print("Prediction: FRAUD")
-    else:
-        print("Prediction: NORMAL")
-
+    print(
+        f"Input:  {input_path}"
+    )
+    print(
+        f"Output: {output_path}"
+    )
     print("==========================")
 
+
+    # ==========================
     # Stop Spark
+    # ==========================
+
     spark.stop()
 
     # Force process termination on Windows

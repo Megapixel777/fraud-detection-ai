@@ -120,3 +120,55 @@ def test_invalid_transaction():
     )
 
     assert response.status_code == 422
+
+    # ==========================
+# Test missing feature
+# ==========================
+
+def test_missing_feature():
+
+    transaction = {
+        "V17": 0,
+        "V16": 0,
+        "V7": 0,
+        "V10": 0,
+        "V14": 0,
+        "V11": 0,
+        "V4": 0,
+        "V9": 0,
+        "V3": 0
+    }
+
+    response = client.post(
+        "/predict",
+        json=transaction
+    )
+
+    assert response.status_code == 422
+
+
+# ==========================
+# Test null feature
+# ==========================
+
+def test_null_feature():
+
+    transaction = {
+        "V12": None,
+        "V17": 0,
+        "V16": 0,
+        "V7": 0,
+        "V10": 0,
+        "V14": 0,
+        "V11": 0,
+        "V4": 0,
+        "V9": 0,
+        "V3": 0
+    }
+
+    response = client.post(
+        "/predict",
+        json=transaction
+    )
+
+    assert response.status_code == 422

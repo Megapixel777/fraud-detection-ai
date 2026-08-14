@@ -44,10 +44,16 @@ data/gold/
 # ==========================================
 # Trained Models
 # ==========================================
-models/
+models/*
+!models/fraud_random_forest_top10/
+!models/fraud_random_forest_top10/**
 
 # ==========================================
 # OS Files
 # ==========================================
 .DS_Store
 Thumbs.db
+
+# Spark/Hadoop generated files
+*.crc
+_SUCCESS

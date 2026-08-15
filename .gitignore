@@ -47,6 +47,7 @@ data/gold/
 models/*
 !models/fraud_random_forest_top10/
 !models/fraud_random_forest_top10/**
+!models/fraud_random_forest_top10_sklearn.joblib
 
 # ==========================================
 # OS Files

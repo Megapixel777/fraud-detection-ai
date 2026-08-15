@@ -1,0 +1,54 @@
+name: Deploy Cloud Run - Sklearn Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: "projects/992568969638/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider"
+          service_account: "github-actions-deployer@gen-lang-client-0097541881.iam.gserviceaccount.com"
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure Docker
+        run: |
+          gcloud auth configure-docker europe-southwest1-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -f Dockerfile.sklearn \
+            -t europe-southwest1-docker.pkg.dev/gen-lang-client-0097541881/fraud-detection/fraud-detection-api:sklearn \
+            .
+
+      - name: Push Docker image
+        run: |
+          docker push \
+            europe-southwest1-docker.pkg.dev/gen-lang-client-0097541881/fraud-detection/fraud-detection-api:sklearn
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy fraud-detection-api-sklearn \
+            --image=europe-southwest1-docker.pkg.dev/gen-lang-client-0097541881/fraud-detection/fraud-detection-api:sklearn \
+            --region=europe-southwest1 \
+            --platform=managed \
+            --allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=1 \
+            --cpu=1 \
+            --memory=1Gi \
+            --port=8000

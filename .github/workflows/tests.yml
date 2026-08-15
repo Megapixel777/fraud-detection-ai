@@ -41,10 +41,34 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: "projects/992568969638/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider"
+          service_account: "github-actions-deployer@gen-lang-client-0097541881.iam.gserviceaccount.com"
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure Docker
+        run: |
+          gcloud auth configure-docker europe-southwest1-docker.pkg.dev --quiet
+
       - name: Build Docker image
         run: |
-          docker build -t fraud-detection-api .
+          docker build \
+            -t europe-southwest1-docker.pkg.dev/gen-lang-client-0097541881/fraud-detection/fraud-detection-api:latest \
+            .
+
+      - name: Push Docker image
+        run: |
+          docker push \
+            europe-southwest1-docker.pkg.dev/gen-lang-client-0097541881/fraud-detection/fraud-detection-api:latest

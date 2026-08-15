@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-
+from src.agent.fraud_agent import investigate
+from src.agent.schemas import InvestigationResult
 from src.ml.predictor_sklearn import FraudPredictorSklearn
 
 
@@ -70,3 +71,17 @@ def predict(transaction: Transaction):
     )
 
     return result
+
+# ==========================
+# Fraud Investigation
+# ==========================
+
+@app.post(
+    "/investigate",
+    response_model=InvestigationResult
+)
+def investigate_transaction(transaction: Transaction):
+
+    return investigate(
+        transaction.model_dump()
+    )

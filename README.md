@@ -1,381 +1,571 @@
 # Fraud Detection AI
 
-End-to-end Fraud Detection System using **PySpark**, **Machine Learning**, **Databricks**, **FastAPI**, **AI Agents** and **Power BI**.
+End-to-end fraud detection platform built with **PySpark, scikit-learn, FastAPI, Docker, Google Cloud Run and GitHub Actions CI/CD**.
+
+The project covers the complete lifecycle of a Machine Learning application: data ingestion and preparation, feature selection, model training, evaluation, batch prediction, model serving, containerization and cloud deployment.
+
+---
 
 ## Project Overview
 
-This project aims to build a complete fraud detection platform capable of:
+The project uses a public credit card fraud dataset containing **284,807 transactions** and addresses the highly imbalanced nature of fraud detection.
 
-* Ingesting financial transaction data.
-* Processing data using PySpark.
-* Building a Medallion Architecture.
-* Performing feature selection and feature importance analysis.
-* Training Machine Learning models to detect fraudulent transactions.
-* Optimizing the fraud classification threshold.
-* Evaluating the model on unseen data.
-* Generating batch fraud predictions.
-* Serving predictions through a REST API.
-* Explaining fraud decisions using an AI Agent.
-* Visualizing fraud metrics in Power BI.
+The main objectives are:
 
-The project follows software engineering best practices, including version control with Git, modular code organization and reproducible environments.
+- Ingest and process transaction data using PySpark.
+- Implement a Medallion-style data architecture.
+- Perform feature selection and feature importance analysis.
+- Train a Random Forest fraud detection model.
+- Optimize the classification threshold using a validation dataset.
+- Evaluate the model on previously unseen test data.
+- Generate batch fraud predictions.
+- Compare PySpark ML and scikit-learn implementations.
+- Expose the model through a REST API using FastAPI.
+- Containerize the application with Docker.
+- Deploy the API to Google Cloud Run.
+- Store container images in Google Artifact Registry.
+- Implement automated testing and CI/CD using GitHub Actions.
+
+---
+
+## Architecture
+
+```text
+                         ┌──────────────────────┐
+                         │   Credit Card Data   │
+                         │     creditcard.csv   │
+                         └──────────┬───────────┘
+                                    │
+                                    ▼
+                              ┌───────────┐
+                              │   Raw     │
+                              └─────┬─────┘
+                                    │
+                                  PySpark
+                                    │
+                                    ▼
+                              ┌───────────┐
+                              │  Bronze   │
+                              └─────┬─────┘
+                                    │
+                                  PySpark
+                                    │
+                                    ▼
+                              ┌───────────┐
+                              │  Silver   │
+                              └─────┬─────┘
+                                    │
+                         ┌──────────┴──────────┐
+                         │                     │
+                         ▼                     ▼
+                  PySpark ML            scikit-learn
+                  Random Forest          Random Forest
+                         │                     │
+                         └──────────┬──────────┘
+                                    │
+                              Model Evaluation
+                                    │
+                                    ▼
+                            Batch Predictions
+                                    │
+                                    ▼
+                                ┌───────┐
+                                │ Gold  │
+                                └───┬───┘
+                                    │
+                                    ▼
+                               FastAPI
+                                    │
+                                    ▼
+                              Docker Image
+                                    │
+                                    ▼
+                           Artifact Registry
+                                    │
+                                    ▼
+                              Cloud Run
+```
 
 ---
 
 ## Data Pipeline
 
-The project follows a **Medallion Architecture**:
+The data pipeline follows a Medallion-style architecture:
 
-```text
-Raw → Bronze → Silver → Machine Learning → Gold
-```
+`Raw → Bronze → Silver → Machine Learning → Gold`
 
 ### Raw
 
-Contains the original credit card transaction dataset.
+The original dataset is stored locally as:
 
-```text
+```
 data/raw/creditcard.csv
 ```
 
-The original dataset is kept unchanged at this stage.
+The original data is kept unchanged at this stage.
 
 ### Bronze
 
-The Raw dataset is ingested using PySpark and stored in the Bronze layer.
+The Raw dataset is ingested using PySpark and stored in the Bronze layer:
 
-```text
+```
 data/bronze/creditcard/
 ```
 
-The Bronze layer preserves the original dataset structure, including:
+The Bronze layer preserves the original transaction structure:
 
-* `Time`
-* `V1` – `V28`
-* `Amount`
-* `Class`
+- Time
+- V1 – V28
+- Amount
+- Class
 
 ### Silver
 
-The Bronze data is cleaned and prepared for Machine Learning.
+The Bronze data is cleaned and prepared for Machine Learning:
 
-```text
+```
 data/silver/transactions_clean/
 ```
 
 The Silver layer contains:
 
-* `Time`
-* `V1` – `V28`
-* `Amount`
-* `Class`
+- Time
+- V1 – V28
+- Amount
+- Class
 
-The data is converted to numeric types and invalid rows are removed.
+Invalid rows are removed and the required columns are converted to appropriate numeric types.
 
-`Amount` is retained in the Silver layer but is not currently used by the selected Top 10 feature model.
+Amount is retained in Silver for experimentation, although it is not part of the selected Top 10 feature model.
 
 ### Gold
 
-The Gold layer contains transaction predictions generated by the trained Machine Learning model.
+The Gold layer contains the fraud predictions generated by the trained model:
 
-```text
+```
 data/gold/fraud_predictions/
 ```
 
 The prediction output contains:
 
-* `fraud_probability`
-* `final_prediction`
-* `prediction_label`
+- fraud_probability
+- final_prediction
+- prediction_label
 
-Spark may write the Gold output into multiple `part-*` files. These files together represent the Gold dataset.
+Because Spark writes distributed output, the Gold dataset may contain multiple `part-*` files.
 
 ---
 
-## Machine Learning Model
+## Machine Learning
 
-The current model is a **Random Forest classifier** implemented using PySpark.
+The main Machine Learning algorithm is a Random Forest classifier.
 
-The selected model uses the following Top 10 features:
+The selected Top 10 features are:
 
-* `V12`
-* `V17`
-* `V16`
-* `V7`
-* `V10`
-* `V14`
-* `V11`
-* `V4`
-* `V9`
-* `V3`
+| Rank | Feature |
+|------|---------|
+| 1 | V12 |
+| 2 | V17 |
+| 3 | V16 |
+| 4 | V10 |
+| 5 | V7 |
+| 6 | V14 |
+| 7 | V4 |
+| 8 | V9 |
+| 9 | V11 |
+| 10 | V3 |
 
-The trained model is stored in:
+The Spark ML model is stored under:
 
-```text
+```
 models/fraud_random_forest_top10/
 ```
 
----
+A scikit-learn version is also persisted as:
 
-## Feature Importance
-
-The current Random Forest model produced the following feature importance ranking:
-
-| Rank | Feature | Importance |
-|---:|---|---:|
-| 1 | `V12` | 0.252261 |
-| 2 | `V17` | 0.186887 |
-| 3 | `V16` | 0.115661 |
-| 4 | `V10` | 0.108945 |
-| 5 | `V7` | 0.087023 |
-| 6 | `V14` | 0.079335 |
-| 7 | `V4` | 0.068400 |
-| 8 | `V9` | 0.063141 |
-| 9 | `V11` | 0.019964 |
-| 10 | `V3` | 0.018384 |
-
-The model is primarily driven by:
-
-```text
-V12
-V17
-V16
-V10
+```
+models/fraud_random_forest_top10_sklearn.joblib
 ```
 
----
+### Feature Importance
 
-## Feature Selection Experiment
+The Random Forest model identified the following feature importance ranking:
 
-An experiment was performed to determine whether adding `Amount` improved the selected Top 10 model.
+| Rank | Feature | Importance |
+|------|---------|------------|
+| 1 | V12 | 0.252261 |
+| 2 | V17 | 0.186887 |
+| 3 | V16 | 0.115661 |
+| 4 | V10 | 0.108945 |
+| 5 | V7 | 0.087023 |
+| 6 | V14 | 0.079335 |
+| 7 | V4 | 0.068400 |
+| 8 | V9 | 0.063141 |
+| 9 | V11 | 0.019964 |
+| 10 | V3 | 0.018384 |
+
+The model is primarily driven by V12, V17, V16 and V10.
+
+### Feature Selection Experiment
+
+An experiment was performed to determine whether adding Amount improved the selected Top 10 model.
 
 Two configurations were compared:
 
-```text
-Top 10
-```
-
-versus:
-
-```text
-Top 10 + Amount
-```
+- Top 10 features
+- Top 10 features + Amount
 
 Results:
 
 | Model | Precision | Recall | F1 | PR-AUC | ROC-AUC |
-|---|---:|---:|---:|---:|---:|
-| **Top 10** | **0.8770** | **0.7825** | **0.8271** | 0.7779 | 0.9723 |
-| Top 10 + Amount | 0.8699 | 0.7744 | 0.8194 | **0.8126** | **0.9725** |
+|-------|-----------|--------|----|--------|---------|
+| Top 10 | 0.8770 | 0.7825 | 0.8271 | 0.7779 | 0.9723 |
+| Top 10 + Amount | 0.8699 | 0.7744 | 0.8194 | 0.8126 | 0.9725 |
 
-Adding `Amount` improved PR-AUC and slightly improved ROC-AUC, but reduced Precision, Recall and F1 at the selected operating point.
+Adding Amount improved PR-AUC and slightly improved ROC-AUC, but reduced Precision, Recall and F1 at the selected operating point.
 
-Since the primary optimization criterion is the **F1 score of the FRAUD class**, the **Top 10 model was retained**.
+Because the primary optimization criterion was the F1 score of the FRAUD class, the Top 10 model was retained.
 
-`Amount` remains available in Silver for future experimentation.
-
----
-
-## Model Evaluation
-
-Because the dataset is highly imbalanced, accuracy and weighted metrics alone are not sufficient to evaluate fraud detection performance.
-
-The project therefore focuses on:
-
-* Precision for the FRAUD class.
-* Recall for the FRAUD class.
-* F1 score for the FRAUD class.
-* PR-AUC.
-* ROC-AUC.
-* Confusion matrix.
-
-The evaluation process was progressively improved from an initial evaluation on the complete dataset to a proper **stratified Train / Validation / Test methodology**.
+Amount remains available in the Silver layer for experimentation.
 
 ---
 
 ## Train / Validation / Test Strategy
 
-The current validation methodology uses a **stratified Train / Validation / Test split**.
+Because fraud detection is highly imbalanced, the evaluation process uses a stratified Train / Validation / Test methodology.
 
-The dataset is divided approximately as follows:
+The data is divided approximately as follows:
 
-```text
-80% Train
-10% Validation
-10% Test
-```
+- 80% Train
+- 10% Validation
+- 10% Test
 
-The split is performed independently for:
+The split preserves the class distribution between:
 
-```text
-Class = 0 → Normal
-Class = 1 → Fraud
-```
-
-This keeps the fraud proportion approximately consistent across the three datasets.
+- Class = 0 → Normal
+- Class = 1 → Fraud
 
 The workflow is:
 
 ```text
-                    Silver
-                       │
-                       ▼
-              Stratified Split
-                       │
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-       Train       Validation      Test
-        80%           10%           10%
-          │            │             │
-          ▼            ▼             │
-       Random       Threshold        │
-       Forest      Optimization      │
-          │            │             │
-          │            ▼             │
-          │        Threshold         │
-          │           0.20           │
-          │                          │
-          └──────────────────────────▼
-                              Final Evaluation
+                         Silver
+                           │
+                           ▼
+                    Stratified Split
+                           │
+             ┌─────────────┼─────────────┐
+             ▼             ▼             ▼
+           Train       Validation       Test
+            80%            10%           10%
+             │              │
+             ▼              ▼
+        Random Forest   Threshold
+                       Optimization
+                           │
+                           ▼
+                       Best Threshold
+                           │
+                           ▼
+                     Final Test
+                     Evaluation
 ```
 
-The Test dataset is not used to select the threshold.
+The Test dataset is not used during threshold selection.
 
-This prevents the Test set from influencing the threshold selection process.
+This prevents the Test set from influencing the final operating threshold.
 
 ---
 
 ## Threshold Optimization
 
-The fraud probability threshold is optimized using the **F1 score of the FRAUD class** on the Validation dataset.
+The classification threshold is optimized using the F1 score of the FRAUD class on the Validation dataset.
 
-The evaluated thresholds were:
+The selected threshold for the deployed scikit-learn implementation is:
 
-| Threshold | TP | FP | FN | Precision | Recall | F1 |
-|---:|---:|---:|---:|---:|---:|---:|
-| **0.20** | 30 | 13 | 8 | 0.6977 | **0.7895** | **0.7407** |
-| 0.25 | 29 | 12 | 9 | 0.7073 | 0.7632 | 0.7342 |
-| 0.30 | 28 | 12 | 10 | 0.7000 | 0.7368 | 0.7179 |
-| 0.35 | 27 | 12 | 11 | 0.6923 | 0.7105 | 0.7013 |
-| 0.40 | 27 | 11 | 11 | 0.7105 | 0.7105 | 0.7105 |
-| 0.45 | 27 | 10 | 11 | 0.7297 | 0.7105 | 0.7200 |
-| 0.50 | 27 | 10 | 11 | 0.7297 | 0.7105 | 0.7200 |
+**0.35**
 
-The best threshold on the Validation dataset was:
+Classification logic:
 
 ```text
-0.20
-```
-
-Validation performance at the selected threshold:
-
-| Metric | Result |
-|---|---:|
-| True Positives | 30 |
-| False Positives | 13 |
-| False Negatives | 8 |
-| Precision | 69.77% |
-| Recall | 78.95% |
-| F1 Score | 74.07% |
-
-The threshold is selected exclusively on Validation and then applied unchanged to Test.
-
-The current validated threshold is:
-
-```python
-THRESHOLD = 0.20
-```
-
-### Classification Logic
-
-```text
-fraud_probability >= 0.20
+fraud_probability >= 0.35
         ↓
       FRAUD
 
-fraud_probability < 0.20
+
+fraud_probability < 0.35
         ↓
-     NORMAL
+      NORMAL
 ```
+
+The threshold is determined during validation and remains fixed during inference.
 
 ---
 
-## Final Test Evaluation
+## Final Model Comparison
 
-After selecting the threshold using the Validation dataset, the model was evaluated on the unseen Test dataset.
+Two implementations of the Random Forest model were evaluated:
 
-### Final Test Results
+- PySpark ML
+- scikit-learn
 
-| Metric | Result |
-|---|---:|
-| Threshold | **0.20** |
-| True Positives | 32 |
-| False Positives | 3 |
-| False Negatives | 10 |
-| Precision | **91.43%** |
-| Recall | **76.19%** |
-| F1 Score | **83.12%** |
-| PR-AUC | **0.8068** |
-| ROC-AUC | **0.9645** |
+The comparison was performed using the same feature set and evaluation methodology.
 
-### Confusion Matrix
+### Results
 
-```text
-TP = 32
-FP = 3
-FN = 10
-```
+| Metric | PySpark ML | scikit-learn |
+|--------|-----------|---------------|
+| Threshold | 0.30 | 0.35 |
+| Precision | 0.8298 | 0.8478 |
+| Recall | 0.7800 | 0.7800 |
+| F1 | 0.8041 | 0.8125 |
+| PR-AUC | 0.6848 | 0.7694 |
+| ROC-AUC | 0.9350 | 0.9295 |
 
-Therefore:
+The two implementations achieved:
 
-* 32 fraudulent transactions were correctly detected.
-* 10 fraudulent transactions were missed.
-* 3 normal transactions were incorrectly classified as fraudulent.
+**99.9895% prediction agreement**
 
-The final Test results indicate that the model maintains strong fraud detection performance on previously unseen transactions.
-
-Because fraud detection is a highly imbalanced classification problem, the F1 score, Precision, Recall and PR-AUC are particularly important when assessing the model.
+This showed that the scikit-learn implementation produced almost identical classification decisions while being significantly lighter for online inference.
 
 ---
 
-## Model Output
+## Model Serving Optimization
 
-The prediction pipeline produces three main outputs.
+The original API used a PySpark-based inference environment.
 
-### `fraud_probability`
+The resulting Docker image was approximately **1.57 GB**.
 
-The estimated probability that a transaction is fraudulent.
+A second implementation was created using scikit-learn and the persisted `.joblib` model.
 
-Example:
+The resulting image was approximately **689 MB**.
 
-```text
-0.00689
-```
+This represents a reduction of approximately **56%**.
 
-### `final_prediction`
+The comparison demonstrated that Spark is useful for distributed data processing and Machine Learning workflows, while scikit-learn provides a more lightweight option for serving individual predictions through an API.
 
-The final binary classification after applying the validated threshold.
+---
 
-```text
-0.0 = NORMAL
-1.0 = FRAUD
-```
+## Batch Prediction
 
-### `prediction_label`
-
-Human-readable representation of the prediction:
+The Spark batch prediction pipeline loads the trained model and generates predictions from the Silver dataset.
 
 ```text
-NORMAL
-FRAUD
+Silver
+  │
+  ▼
+Random Forest
+  │
+  ▼
+fraud_probability
+  │
+  ▼
+Classification Threshold
+  │
+  ▼
+final_prediction
+  │
+  ▼
+prediction_label
+  │
+  ▼
+Gold
 ```
+
+The prediction output contains:
+
+- fraud_probability
+- final_prediction
+- prediction_label
 
 Example:
 
 | fraud_probability | final_prediction | prediction_label |
-|---:|---:|---|
-| 0.00689 | 0.0 | NORMAL |
-| 0.86773 | 1.0 | FRAUD |
+|--------------------|-------------------|--------------------|
+| 0.00689 | 0 | NORMAL |
+| 0.86773 | 1 | FRAUD |
+
+---
+
+## FastAPI
+
+The scikit-learn model is exposed through a REST API built with FastAPI.
+
+Main endpoints:
+
+- `GET /health`
+- `POST /predict`
+
+### `/health`
+
+Used to verify that the API is running.
+
+Example response:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+### `/predict`
+
+Receives the Top 10 model features as JSON and returns the fraud probability and final classification.
+
+Example request:
+
+```json
+{
+  "V12": 0.0,
+  "V17": 0.0,
+  "V16": 0.0,
+  "V7": 0.0,
+  "V10": 0.0,
+  "V14": 0.0,
+  "V11": 0.0,
+  "V4": 0.0,
+  "V9": 0.0,
+  "V3": 0.0
+}
+```
+
+Example response:
+
+```json
+{
+  "fraud_probability": 0.00027097637208884463,
+  "final_prediction": 0,
+  "prediction_label": "NORMAL"
+}
+```
+
+The API also exposes interactive Swagger documentation through:
+
+```
+/docs
+```
+
+---
+
+## Docker
+
+The project contains separate Docker configurations for the Spark and scikit-learn implementations.
+
+The lightweight API image uses:
+
+- Python
+- FastAPI
+- scikit-learn
+- joblib
+
+The resulting image is approximately **689 MB**.
+
+Docker images are stored in Google Artifact Registry.
+
+---
+
+## Google Cloud Deployment
+
+The API was deployed and validated using Google Cloud Run.
+
+Deployment architecture:
+
+```text
+GitHub Actions
+      │
+      ▼
+Docker Build
+      │
+      ▼
+Artifact Registry
+      │
+      ▼
+Google Cloud Run
+      │
+      ▼
+FastAPI
+      │
+      ▼
+scikit-learn Model
+```
+
+The deployed API was tested successfully through:
+
+- `/health`
+- `/predict`
+- Swagger `/docs`
+
+The Cloud Run service was removed after validation to avoid leaving an unnecessary running service.
+
+The Docker image remains available in Artifact Registry for future deployments.
+
+---
+
+## CI/CD
+
+The project uses GitHub Actions for Continuous Integration and Continuous Deployment.
+
+The repository contains separate workflows for:
+
+- `tests.yml`
+- `deploy.yml`
+- `deploy-sklearn.yml`
+
+### Continuous Integration
+
+The CI workflow executes the automated test suite using:
+
+```bash
+python -m pytest -v
+```
+
+This ensures that code changes are validated before deployment.
+
+### Continuous Deployment
+
+The deployment workflow automates the process:
+
+```text
+GitHub
+   │
+   ▼
+Docker Build
+   │
+   ▼
+Artifact Registry
+   │
+   ▼
+Cloud Run
+```
+
+The scikit-learn deployment was successfully executed through GitHub Actions and validated end-to-end.
+
+---
+
+## Git and Version Control
+
+The project uses Git and GitHub for version control.
+
+The repository includes:
+
+- Source code
+- Configuration files
+- Docker configuration
+- CI/CD workflows
+- Model artifacts required for deployment
+- Tests
+- Documentation
+
+A specific `.gitignore` strategy is used to prevent unwanted model artifacts from being committed while allowing the model required by the deployment pipeline to be versioned.
+
+---
+
+## Automated Testing
+
+Automated tests are executed using pytest.
+
+The CI pipeline validates the project automatically through GitHub Actions.
+
+The project also includes dedicated validation code for the prediction components and the scikit-learn inference implementation.
 
 ---
 
@@ -387,404 +577,264 @@ fraud-detection-ai/
 ├── data/
 │   ├── raw/
 │   │   └── creditcard.csv
-│   │
 │   ├── bronze/
 │   │   └── creditcard/
-│   │
 │   ├── silver/
 │   │   └── transactions_clean/
-│   │
 │   └── gold/
 │       └── fraud_predictions/
 │
-├── notebooks/
-│   └── fraud_detection.ipynb
+├── models/
+│   ├── fraud_random_forest_top10/
+│   └── fraud_random_forest_top10_sklearn.joblib
 │
 ├── src/
-│   ├── ingest_data.py
-│   ├── prepare_data.py
-│   ├── predict.py
-│   ├── evaluate_model.py
-│   ├── feature_importance.py
-│   ├── compare_amount.py
-│   └── validate_model.py
+│   └── ml/
+│       ├── predictor_sklearn.py
+│       └── ...
 │
-├── tests/
+├── .github/
+│   └── workflows/
+│       ├── tests.yml
+│       ├── deploy.yml
+│       └── deploy-sklearn.yml
 │
-├── models/
-│   └── fraud_random_forest_top10/
-│
+├── Dockerfile
+├── Dockerfile.sklearn
 ├── requirements.txt
+├── requirements-api-sklearn.txt
 ├── README.md
 └── .gitignore
 ```
 
 ---
 
-## Pipeline Components
-
-### `ingest_data.py`
-
-Responsible for ingesting the original dataset from Raw into Bronze.
-
-```bash
-python src/ingest_data.py
-```
-
-Pipeline:
-
-```text
-data/raw/creditcard.csv
-        ↓
-ingest_data.py
-        ↓
-data/bronze/creditcard/
-```
-
-### `prepare_data.py`
-
-Responsible for cleaning and preparing Bronze data for Machine Learning.
-
-```bash
-python src/prepare_data.py
-```
-
-Pipeline:
-
-```text
-data/bronze/creditcard/
-        ↓
-prepare_data.py
-        ↓
-data/silver/transactions_clean/
-```
-
-### `feature_importance.py`
-
-Calculates feature importance for the trained Random Forest model.
-
-```bash
-python src/feature_importance.py
-```
-
-The current Top 10 features are ranked according to their Random Forest importance.
-
-### `compare_amount.py`
-
-Compares:
-
-```text
-Top 10
-```
-
-against:
-
-```text
-Top 10 + Amount
-```
-
-```bash
-python src/compare_amount.py
-```
-
-The current experiment selected the Top 10 model based primarily on F1 performance.
-
-### `evaluate_model.py`
-
-Evaluates model performance and threshold behaviour.
-
-```bash
-python src/evaluate_model.py
-```
-
-The evaluation includes:
-
-* Confusion matrix.
-* Precision.
-* Recall.
-* F1 score.
-* PR-AUC.
-* ROC-AUC.
-* Threshold analysis.
-
-### `validate_model.py`
-
-Performs the stratified Train / Validation / Test experiment.
-
-```bash
-python src/validate_model.py
-```
-
-The script:
-
-1. Loads the Silver dataset.
-2. Separates Normal and Fraud transactions.
-3. Creates an approximately 80/10/10 stratified split.
-4. Trains the Random Forest using Train.
-5. Evaluates candidate thresholds using Validation.
-6. Selects the threshold with the highest F1 score.
-7. Applies the selected threshold to Test.
-8. Reports the final Test metrics.
-
-Current validated threshold:
-
-```text
-0.20
-```
-
-### `predict.py`
-
-Loads the trained Random Forest model and generates fraud predictions from Silver data.
-
-```bash
-python src/predict.py ../data/silver/transactions_clean
-```
-
-Pipeline:
-
-```text
-data/silver/transactions_clean/
-        ↓
-predict.py
-        ↓
-Random Forest
-        ↓
-fraud_probability
-        ↓
-threshold = 0.20
-        ↓
-final_prediction
-        ↓
-prediction_label
-        ↓
-data/gold/fraud_predictions/
-```
-
-The prediction pipeline uses the threshold determined during model validation rather than optimizing the threshold during inference.
-
----
-
 ## Technology Stack
 
-* Python
-* PySpark
-* Apache Spark
-* Databricks
-* Pandas
-* Scikit-learn
-* XGBoost
-* MLflow
-* FastAPI
-* Power BI
-* Git & GitHub
+### Data Engineering
+- Python
+- PySpark
+- Apache Spark
+- SQL
+- Medallion Architecture
+
+### Machine Learning
+- scikit-learn
+- PySpark ML
+- Random Forest
+- Feature importance
+- Threshold optimization
+- Precision
+- Recall
+- F1
+- PR-AUC
+- ROC-AUC
+
+### API
+- FastAPI
+- REST
+- Swagger / OpenAPI
+
+### DevOps & Cloud
+- Docker
+- Git
+- GitHub
+- GitHub Actions
+- Google Artifact Registry
+- Google Cloud Run
 
 ---
 
 ## Dataset
 
-The project uses a public credit card fraud dataset.
+The project uses a public credit card fraud detection dataset.
 
-Due to its size, the dataset is **not included in this repository**.
+The dataset is not included in the repository because of its size.
 
-Place the downloaded dataset inside:
+Expected location:
 
-```text
-data/raw/
 ```
-
-Expected file:
-
-```text
 data/raw/creditcard.csv
 ```
 
-The dataset contains transaction features including:
+The dataset contains:
 
-* `Time`
-* `V1` – `V28`
-* `Amount`
-* `Class`
+- Time
+- V1 – V28
+- Amount
+- Class
 
-`Class` represents the real transaction label:
+The target variable is:
+
+- 0 = Normal
+- 1 = Fraud
+
+---
+
+## Project Status
+
+The project is considered complete as an end-to-end portfolio project.
+
+Implemented components:
+
+- [x] Project initialization
+- [x] Raw data ingestion
+- [x] Bronze layer
+- [x] Silver layer
+- [x] Gold layer
+- [x] Medallion-style architecture
+- [x] Feature selection
+- [x] Feature importance analysis
+- [x] Random Forest model
+- [x] Model persistence
+- [x] Model loading for inference
+- [x] Fraud probability calculation
+- [x] Amount feature experiment
+- [x] Stratified Train / Validation / Test split
+- [x] Threshold optimization
+- [x] Final Test evaluation
+- [x] Confusion matrix
+- [x] Precision / Recall / F1 evaluation
+- [x] PR-AUC / ROC-AUC evaluation
+- [x] Batch fraud prediction
+- [x] Spark ML implementation
+- [x] scikit-learn implementation
+- [x] Spark vs scikit-learn comparison
+- [x] Prediction agreement analysis
+- [x] FastAPI service
+- [x] Swagger documentation
+- [x] Automated testing
+- [x] Docker containerization
+- [x] Artifact Registry
+- [x] Google Cloud Run deployment
+- [x] GitHub Actions CI/CD
+- [x] End-to-end cloud deployment validation
+
+---
+
+## Deliberately Out of Scope
+
+The following features were considered but were not implemented because they are not required for the current production-oriented portfolio version:
+
+- AI Agent
+- Power BI dashboard
+- Alternative Machine Learning algorithms
+- Formal k-fold cross-validation
+- Production monitoring
+- Model monitoring
+
+These are potential extensions rather than incomplete components of the current end-to-end pipeline.
+
+---
+
+## Key Engineering Decisions
+
+### Why Random Forest?
+
+Random Forest provides a strong baseline for tabular classification and works well with the numerical feature representation of this dataset.
+
+### Why F1 instead of Accuracy?
+
+Fraud is a highly imbalanced classification problem. Accuracy can therefore be misleading.
+
+The project prioritizes:
+
+- Precision
+- Recall
+- F1
+- PR-AUC
+- ROC-AUC
+
+with particular emphasis on the FRAUD class.
+
+### Why optimize the threshold?
+
+The default threshold of 0.50 is not necessarily appropriate for fraud detection.
+
+The project explicitly evaluates different thresholds and selects the operating point using the validation dataset.
+
+### Why scikit-learn for the API?
+
+The Spark and scikit-learn implementations achieved 99.9895% prediction agreement while the scikit-learn container was substantially smaller:
+
+| Implementation | Docker image |
+|-----------------|---------------|
+| Spark | ~1.57 GB |
+| scikit-learn | ~689 MB |
+
+Therefore, scikit-learn was selected as the preferred implementation for lightweight online inference.
+
+---
+
+## Key Results
+
+| Metric | Result |
+|--------|--------|
+| Dataset size | 284,807 transactions |
+| Selected features | 10 |
+| Spark F1 | 0.8041 |
+| scikit-learn F1 | 0.8125 |
+| scikit-learn PR-AUC | 0.7694 |
+| scikit-learn ROC-AUC | 0.9295 |
+| Prediction agreement | 99.9895% |
+| Spark Docker image | ~1.57 GB |
+| scikit-learn Docker image | ~689 MB |
+| Docker image reduction | ~56% |
+
+---
+
+## End-to-End Workflow
 
 ```text
-0 = Normal
-1 = Fraud
+Credit Card Dataset
+        │
+        ▼
+      PySpark
+        │
+        ▼
+  Bronze / Silver
+        │
+        ▼
+Feature Selection
+        │
+        ▼
+ Random Forest
+        │
+        ├──────────────────┐
+        ▼                  ▼
+   Spark ML          scikit-learn
+        │                  │
+        └────────┬─────────┘
+                 ▼
+          Model Evaluation
+                 │
+                 ▼
+       Threshold Optimization
+                 │
+                 ▼
+          Batch Predictions
+                 │
+                 ▼
+               Gold
+                 │
+                 ▼
+              FastAPI
+                 │
+                 ▼
+              Docker
+                 │
+                 ▼
+         Artifact Registry
+                 │
+                 ▼
+            Cloud Run
+                 │
+                 ▼
+          REST / Swagger
 ```
-
----
-
-## Current Status
-
-The following components have been implemented and tested:
-
-* [x] Project initialization
-* [x] Raw data ingestion
-* [x] Bronze layer
-* [x] Silver layer
-* [x] Gold layer
-* [x] Medallion Architecture
-* [x] Random Forest fraud detection model
-* [x] Top 10 feature selection
-* [x] Feature importance analysis
-* [x] Model persistence
-* [x] Model loading for inference
-* [x] Fraud probability calculation
-* [x] `Amount` comparison experiment
-* [x] Stratified Train / Validation / Test split
-* [x] Threshold optimization
-* [x] Final Test evaluation
-* [x] Confusion matrix
-* [x] Precision / Recall / F1 evaluation
-* [x] PR-AUC / ROC-AUC evaluation
-* [x] Human-readable prediction labels
-* [x] End-to-end Spark batch prediction pipeline
-* [x] Git version control
-
----
-
-## Roadmap
-
-* [x] Project initialization
-* [x] Data ingestion
-* [x] Bronze layer
-* [x] Silver layer
-* [x] Gold layer
-* [x] Feature selection
-* [x] Feature importance analysis
-* [x] Machine Learning model
-* [x] Model persistence
-* [x] Batch prediction pipeline
-* [x] Model evaluation
-* [x] Threshold optimization
-* [x] Stratified Train / Validation / Test validation
-* [x] Final Test evaluation
-* [x] `Amount` experiment
-* [ ] Compare alternative Machine Learning models
-* [ ] Cross-validation
-* [ ] Experiment with additional features
-* [ ] FastAPI service
-* [ ] AI Agent
-* [ ] Power BI dashboard
-* [ ] Automated testing
-* [ ] Docker containerization
-* [ ] CI/CD
-* [ ] Production monitoring
-* [ ] Model monitoring
-
----
-
-## Future Architecture
-
-The planned final architecture is:
-
-```text
-                    ┌──────────────┐
-                    │     Raw      │
-                    │ creditcard   │
-                    │     .csv     │
-                    └──────┬───────┘
-                           │
-                           ▼
-                    ┌──────────────┐
-                    │    Bronze    │
-                    │   PySpark    │
-                    └──────┬───────┘
-                           │
-                           ▼
-                    ┌──────────────┐
-                    │    Silver    │
-                    │ Clean Data   │
-                    └──────┬───────┘
-                           │
-                           ▼
-                 ┌────────────────────┐
-                 │ Machine Learning   │
-                 │    Random Forest   │
-                 └─────────┬──────────┘
-                           │
-                  ┌────────┴────────┐
-                  │                 │
-                  ▼                 ▼
-           ┌──────────────┐  ┌──────────────┐
-           │ Model        │  │ Prediction   │
-           │ Evaluation   │  │ Pipeline     │
-           └──────────────┘  └──────┬───────┘
-                                    │
-                                    ▼
-                            ┌──────────────┐
-                            │     Gold     │
-                            │ Predictions  │
-                            └──────┬───────┘
-                                   │
-                         ┌─────────┴─────────┐
-                         ▼                   ▼
-                  ┌─────────────┐     ┌─────────────┐
-                  │   FastAPI   │     │  Power BI   │
-                  │     API     │     │  Dashboard  │
-                  └──────┬──────┘     └─────────────┘
-                         │
-                         ▼
-                  ┌─────────────┐
-                  │  AI Agent   │
-                  │ Explanation │
-                  └─────────────┘
-```
-
----
-
-## Future Improvements
-
-### Model Development
-
-* Compare alternative Machine Learning models.
-* Perform cross-validation.
-* Investigate additional feature engineering techniques.
-* Evaluate additional feature combinations.
-* Investigate probability calibration.
-* Analyze model stability across different random seeds.
-* Evaluate threshold behaviour across a broader probability range.
-
-### Data Engineering
-
-* Add automated data quality checks.
-* Add schema validation.
-* Implement incremental processing.
-* Improve pipeline orchestration.
-* Add data lineage and monitoring.
-
-### API
-
-The planned REST API will expose fraud predictions through FastAPI.
-
-A future request could provide transaction features and return:
-
-```json
-{
-  "fraud_probability": 0.00689,
-  "final_prediction": 0,
-  "prediction_label": "NORMAL"
-}
-```
-
-### AI Agent
-
-The planned AI Agent will provide explanations of fraud predictions and help interpret model decisions.
-
-### Visualization
-
-A Power BI dashboard will provide visibility into:
-
-* Fraud volume.
-* Fraud rate.
-* Prediction distribution.
-* Model performance.
-* False positives.
-* False negatives.
-* Fraud probability distribution.
 
 ---
 
 ## Author
 
-**Tomás Pérez Ede**
+Tomás Pérez Ede

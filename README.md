@@ -2,7 +2,7 @@
 
 End-to-end fraud detection platform built with **PySpark, scikit-learn, FastAPI, Docker, Google Cloud Run and GitHub Actions CI/CD**.
 
-The project covers the complete lifecycle of a Machine Learning application: data ingestion and preparation, feature selection, model training, evaluation, batch prediction, model serving, containerization and cloud deployment.
+The project covers the complete lifecycle of a Machine Learning application: data ingestion and preparation, feature selection, model training, evaluation, batch prediction, model serving, containerization and cloud deployment. It also includes an **AI Agent layer** that adds investigation context and natural-language explanations on top of the deterministic fraud model.
 
 ---
 
@@ -21,9 +21,11 @@ The main objectives are:
 - Generate batch fraud predictions.
 - Compare PySpark ML and scikit-learn implementations.
 - Expose the model through a REST API using FastAPI.
+- Run a Fraud Detection Agent on top of the model to produce structured, explained investigation results.
 - Containerize the application with Docker.
 - Deploy the API to Google Cloud Run.
 - Store container images in Google Artifact Registry.
+- Manage secrets (OpenAI API key) using Google Secret Manager.
 - Implement automated testing and CI/CD using GitHub Actions.
 
 ---
@@ -37,53 +39,61 @@ The main objectives are:
                          └──────────┬───────────┘
                                     │
                                     ▼
-                              ┌───────────┐
-                              │   Raw     │
-                              └─────┬─────┘
-                                    │
-                                  PySpark
-                                    │
-                                    ▼
-                              ┌───────────┐
-                              │  Bronze   │
-                              └─────┬─────┘
-                                    │
-                                  PySpark
-                                    │
-                                    ▼
-                              ┌───────────┐
-                              │  Silver   │
-                              └─────┬─────┘
-                                    │
-                         ┌──────────┴──────────┐
-                         │                     │
-                         ▼                     ▼
-                  PySpark ML            scikit-learn
-                  Random Forest          Random Forest
-                         │                     │
-                         └──────────┬──────────┘
-                                    │
+                               ┌───────────┐
+                               │    Raw    │
+                               └─────┬─────┘
+                                     │
+                                   PySpark
+                                     │
+                                     ▼
+                               ┌───────────┐
+                               │  Bronze   │
+                               └─────┬─────┘
+                                     │
+                                   PySpark
+                                     │
+                                     ▼
+                               ┌───────────┐
+                               │  Silver   │
+                               └─────┬─────┘
+                                     │
+                         ┌───────────┴───────────┐
+                         │                       │
+                         ▼                       ▼
+                  PySpark ML              scikit-learn
+                  Random Forest            Random Forest
+                         │                       │
+                         └───────────┬───────────┘
+                                     │
                               Model Evaluation
-                                    │
-                                    ▼
-                            Batch Predictions
-                                    │
-                                    ▼
-                                ┌───────┐
-                                │ Gold  │
-                                └───┬───┘
-                                    │
-                                    ▼
-                               FastAPI
-                                    │
-                                    ▼
-                              Docker Image
-                                    │
-                                    ▼
-                           Artifact Registry
-                                    │
-                                    ▼
-                              Cloud Run
+                                     │
+                         ┌───────────┴───────────┐
+                         │                       │
+                         ▼                       ▼
+                 Batch Predictions         FastAPI
+                         │                       │
+                         ▼                       ▼
+                      Gold              Fraud Prediction
+                                                 │
+                                                 ▼
+                                           AI Agent
+                                                 │
+                                      ┌──────────┴──────────┐
+                                      │                     │
+                                      ▼                     ▼
+                                  Local Tools          OpenAI API
+                                      │
+                                      ▼
+                              Structured Investigation
+                                      │
+                                      ▼
+                                    Docker
+                                      │
+                                      ▼
+                              Artifact Registry
+                                      │
+                                      ▼
+                                  Cloud Run
 ```
 
 ---
@@ -394,6 +404,7 @@ Main endpoints:
 
 - `GET /health`
 - `POST /predict`
+- `POST /investigate`
 
 ### `/health`
 
@@ -438,6 +449,24 @@ Example response:
 }
 ```
 
+### `/investigate`
+
+Runs the Fraud Detection Agent for a transaction.
+
+The endpoint combines the scikit-learn prediction, configured threshold, risk classification, key model features and an OpenAI-generated explanation into a structured response.
+
+Example response:
+
+```json
+{
+  "prediction": "FRAUD",
+  "fraud_probability": 0.5641676689595301,
+  "threshold": 0.35,
+  "risk_level": "HIGH",
+  "recommendation": "MANUAL_REVIEW"
+}
+```
+
 The API also exposes interactive Swagger documentation through:
 
 ```
@@ -446,18 +475,100 @@ The API also exposes interactive Swagger documentation through:
 
 ---
 
+## Fraud Detection Agent
+
+The project includes an AI Agent layer on top of the scikit-learn fraud prediction API.
+
+The Agent combines the deterministic output of the Random Forest model with investigation logic and an OpenAI-powered explanation layer.
+
+### Agent responsibilities
+
+The Agent receives the same Top 10 transaction features used by the deployed scikit-learn model and produces a structured investigation result containing:
+
+- `prediction`
+- `fraud_probability`
+- `threshold`
+- `risk_level`
+- `recommendation`
+- `key_features`
+- `explanation`
+
+The fraud decision remains deterministic and is based on the configured Random Forest threshold:
+
+```text
+fraud_probability >= 0.35
+        ↓
+      FRAUD
+        ↓
+      HIGH
+        ↓
+MANUAL_REVIEW
+```
+
+The OpenAI component is used to generate the investigation explanation. The core fraud prediction is not delegated to the LLM.
+
+### Agent tools
+
+The Agent uses application-side tools to access the fraud model and supporting information. This keeps model inference separate from the natural-language investigation layer.
+
+### OpenAI client and testability
+
+The OpenAI client is created through a dedicated `get_openai_client()` function rather than as a module-level client.
+
+This allows the external dependency to be replaced during unit tests:
+
+```text
+Production
+investigate()
+    ↓
+get_openai_client()
+    ↓
+OpenAI API
+
+Tests
+investigate()
+    ↓
+get_openai_client()
+    ↓
+MockOpenAIClient
+```
+
+As a result, Agent tests do not require an OpenAI API key, network access or real API calls.
+
+The real OpenAI integration is validated separately through Docker and Cloud Run end-to-end testing.
+
+### Structured Agent tests
+
+The project includes dedicated tests for:
+
+- Normal transactions
+- Fraudulent transactions
+- Structured Agent output
+
+The OpenAI response is mocked while the real scikit-learn fraud model remains active. This validates the Agent logic without coupling the test suite to an external service.
+
+---
+
 ## Docker
 
 The project contains separate Docker configurations for the Spark and scikit-learn implementations.
 
-The lightweight API image uses:
+- `Dockerfile` → PySpark-based API
+- `Dockerfile.sklearn` → lightweight scikit-learn API and Agent
+
+The scikit-learn image contains:
 
 - Python
 - FastAPI
 - scikit-learn
 - joblib
+- OpenAI client
+- Fraud Detection Agent
+- Persisted Random Forest model
 
-The resulting image is approximately **689 MB**.
+The resulting scikit-learn image is approximately **689 MB**.
+
+The OpenAI API key is not included in the Docker image. It is injected at runtime.
 
 Docker images are stored in Google Artifact Registry.
 
@@ -465,7 +576,7 @@ Docker images are stored in Google Artifact Registry.
 
 ## Google Cloud Deployment
 
-The API was deployed and validated using Google Cloud Run.
+The scikit-learn API and Fraud Detection Agent were deployed and validated using Google Cloud Run.
 
 Deployment architecture:
 
@@ -481,22 +592,69 @@ Artifact Registry
       ▼
 Google Cloud Run
       │
-      ▼
-FastAPI
-      │
-      ▼
-scikit-learn Model
+      ├── FastAPI
+      ├── scikit-learn Model
+      └── Fraud Detection Agent
+               │
+               ▼
+          Secret Manager
+               │
+               ▼
+           OpenAI API
 ```
 
 The deployed API was tested successfully through:
 
 - `/health`
 - `/predict`
+- `/investigate`
 - Swagger `/docs`
+
+The `/investigate` endpoint was successfully executed after deployment and returned the expected structured fraud investigation result.
 
 The Cloud Run service was removed after validation to avoid leaving an unnecessary running service.
 
 The Docker image remains available in Artifact Registry for future deployments.
+
+### Secret management
+
+The OpenAI API key is stored in Google Secret Manager and exposed to Cloud Run as the `OPENAI_API_KEY` environment variable.
+
+The secret is never stored in:
+
+- Git
+- GitHub Actions workflow files
+- Dockerfiles
+- Docker images
+
+Cloud Run uses a runtime service account with the `roles/secretmanager.secretAccessor` permission for the OpenAI secret.
+
+### Deployment strategy
+
+The scikit-learn Cloud Run deployment is intentionally manual.
+
+The deployment workflow is triggered with GitHub Actions `workflow_dispatch`, allowing a deployment to be started from the GitHub Actions interface instead of deploying on every push.
+
+The deployment performs:
+
+```text
+Run workflow
+     │
+     ▼
+Docker Build
+     │
+     ▼
+Artifact Registry :sklearn
+     │
+     ▼
+Cloud Run
+     │
+     ▼
+Secret Manager
+     │
+     ▼
+OpenAI
+```
 
 ---
 
@@ -518,26 +676,64 @@ The CI workflow executes the automated test suite using:
 python -m pytest -v
 ```
 
-This ensures that code changes are validated before deployment.
+The test suite validates the project automatically on pushes and pull requests to `main`.
+
+The current test suite contains:
+
+- API health validation
+- Normal transaction prediction
+- Fraud transaction prediction
+- Invalid input validation
+- Missing feature validation
+- Null feature validation
+- Normal Agent investigation
+- Fraud Agent investigation
+- Structured Agent output
+
+The Agent tests mock the OpenAI client, so CI does not require an OpenAI API key.
 
 ### Continuous Deployment
 
-The deployment workflow automates the process:
+The scikit-learn deployment is manually triggered from GitHub Actions.
+
+The workflow performs:
 
 ```text
-GitHub
-   │
-   ▼
+GitHub Actions
+      │
+      ▼
 Docker Build
-   │
-   ▼
-Artifact Registry
-   │
-   ▼
+      │
+      ▼
+Artifact Registry :sklearn
+      │
+      ▼
 Cloud Run
+      │
+      ▼
+Secret Manager → OPENAI_API_KEY
 ```
 
-The scikit-learn deployment was successfully executed through GitHub Actions and validated end-to-end.
+This separates automatic validation from deployment:
+
+```text
+git push
+   │
+   ▼
+Automatic tests
+   │
+   └── pytest
+
+Manual GitHub Actions trigger
+   │
+   ▼
+Docker build + push
+   │
+   ▼
+Cloud Run deployment
+```
+
+The scikit-learn deployment was successfully executed through GitHub Actions and the resulting Cloud Run service was validated end-to-end.
 
 ---
 
@@ -565,7 +761,28 @@ Automated tests are executed using pytest.
 
 The CI pipeline validates the project automatically through GitHub Actions.
 
-The project also includes dedicated validation code for the prediction components and the scikit-learn inference implementation.
+The current suite contains 9 tests covering:
+
+- FastAPI health endpoint
+- Normal fraud prediction
+- Fraud prediction
+- Invalid transaction input
+- Missing features
+- Null features
+- Normal Agent investigation
+- Fraud Agent investigation
+- Structured Agent output
+
+The OpenAI integration is mocked in Agent unit tests using `MockOpenAIClient`.
+
+This keeps the tests independent from:
+
+- OpenAI availability
+- Network access
+- API credentials
+- External API costs
+
+The real OpenAI integration is tested separately during Docker and Cloud Run end-to-end validation.
 
 ---
 
@@ -589,9 +806,19 @@ fraud-detection-ai/
 │   └── fraud_random_forest_top10_sklearn.joblib
 │
 ├── src/
+│   ├── agent/
+│   │   ├── fraud_agent.py
+│   │   └── tools.py
+│   ├── api/
+│   │   ├── main.py
+│   │   └── main_sklearn.py
 │   └── ml/
 │       ├── predictor_sklearn.py
 │       └── ...
+│
+├── tests/
+│   ├── test_api.py
+│   └── test_agent.py
 │
 ├── .github/
 │   └── workflows/
@@ -630,10 +857,14 @@ fraud-detection-ai/
 - PR-AUC
 - ROC-AUC
 
-### API
+### API & AI Agent
 - FastAPI
 - REST
 - Swagger / OpenAPI
+- OpenAI API
+- AI Agent architecture
+- Structured Agent output
+- Dependency injection / mocking
 
 ### DevOps & Cloud
 - Docker
@@ -642,6 +873,7 @@ fraud-detection-ai/
 - GitHub Actions
 - Google Artifact Registry
 - Google Cloud Run
+- Google Secret Manager
 
 ---
 
@@ -703,10 +935,15 @@ Implemented components:
 - [x] Prediction agreement analysis
 - [x] FastAPI service
 - [x] Swagger documentation
+- [x] Fraud Detection AI Agent
+- [x] OpenAI integration
+- [x] Mocked Agent testing
 - [x] Automated testing
 - [x] Docker containerization
 - [x] Artifact Registry
+- [x] Google Secret Manager
 - [x] Google Cloud Run deployment
+- [x] Manual Cloud Run deployment through GitHub Actions
 - [x] GitHub Actions CI/CD
 - [x] End-to-end cloud deployment validation
 
@@ -716,7 +953,6 @@ Implemented components:
 
 The following features were considered but were not implemented because they are not required for the current production-oriented portfolio version:
 
-- AI Agent
 - Power BI dashboard
 - Alternative Machine Learning algorithms
 - Formal k-fold cross-validation
@@ -766,6 +1002,32 @@ Therefore, scikit-learn was selected as the preferred implementation for lightwe
 
 ---
 
+## Key Agent Engineering Decisions
+
+### Why keep the fraud decision outside the LLM?
+
+The Random Forest remains responsible for the numerical fraud probability and final classification.
+
+The Agent adds investigation context and an explanation layer around the deterministic model output.
+
+This avoids delegating the core fraud classification to a generative model.
+
+### Why mock OpenAI in unit tests?
+
+OpenAI is an external dependency. Unit tests should remain deterministic and independent of network availability and external credentials.
+
+The Agent therefore obtains the OpenAI client through `get_openai_client()`, which can be replaced by a `MockOpenAIClient` during tests.
+
+The real OpenAI integration is validated separately as part of the Docker and Cloud Run end-to-end tests.
+
+### Why use Secret Manager?
+
+The OpenAI API key is required at runtime but should never be stored in source control or inside a container image.
+
+Google Secret Manager provides the runtime secret while keeping the Docker image reusable and free of credentials.
+
+---
+
 ## Key Results
 
 | Metric | Result |
@@ -792,45 +1054,56 @@ Credit Card Dataset
       PySpark
         │
         ▼
-  Bronze / Silver
+   Bronze / Silver
         │
         ▼
-Feature Selection
+  Feature Selection
         │
         ▼
- Random Forest
+   Random Forest
         │
-        ├──────────────────┐
-        ▼                  ▼
-   Spark ML          scikit-learn
-        │                  │
-        └────────┬─────────┘
-                 ▼
-          Model Evaluation
-                 │
-                 ▼
-       Threshold Optimization
-                 │
-                 ▼
-          Batch Predictions
-                 │
-                 ▼
-               Gold
-                 │
-                 ▼
-              FastAPI
-                 │
-                 ▼
-              Docker
-                 │
-                 ▼
-         Artifact Registry
-                 │
-                 ▼
-            Cloud Run
-                 │
-                 ▼
-          REST / Swagger
+   ┌────┴───────────────┐
+   ▼                    ▼
+Spark ML           scikit-learn
+   │                    │
+   └────────┬───────────┘
+            ▼
+      Model Evaluation
+            │
+            ▼
+    Threshold Optimization
+            │
+            ▼
+      Batch Predictions
+            │
+            ▼
+           Gold
+            │
+            ▼
+         FastAPI
+            │
+            ▼
+      Fraud Prediction
+            │
+            ▼
+        AI Agent
+        │      │
+        │      └──────────► OpenAI
+        │
+        ▼
+   Structured Result
+            │
+            ▼
+          Docker
+            │
+            ▼
+     Artifact Registry
+            │
+            ▼
+        Cloud Run
+            │
+            ▼
+ REST / Swagger / Investigate
 ```
 
 ---

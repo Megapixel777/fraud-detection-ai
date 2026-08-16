@@ -3,3 +3,4 @@ fastapi==0.141.1
 uvicorn==0.52.1
 numpy==2.5.1
 httpx2==2.10.0
+openai==2.50.0

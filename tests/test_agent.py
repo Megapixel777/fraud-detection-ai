@@ -3,6 +3,17 @@ import json
 from src.agent.fraud_agent import investigate
 
 
+class MockOpenAIClient:
+
+    class Responses:
+
+        @staticmethod
+        def create(*args, **kwargs):
+            return MockResponse()
+
+    responses = Responses()
+
+
 NORMAL_TRANSACTION = {
     "V12": 0.0,
     "V17": 0.0,
@@ -52,12 +63,9 @@ class MockResponse:
 
 def test_agent_normal(monkeypatch):
 
-    def mock_create(*args, **kwargs):
-        return MockResponse()
-
     monkeypatch.setattr(
-        "src.agent.fraud_agent.client.responses.create",
-        mock_create
+        "src.agent.fraud_agent.get_openai_client",
+        lambda: MockOpenAIClient()
     )
 
     result = investigate(NORMAL_TRANSACTION)
@@ -76,12 +84,9 @@ def test_agent_normal(monkeypatch):
 
 def test_agent_fraud(monkeypatch):
 
-    def mock_create(*args, **kwargs):
-        return MockResponse()
-
     monkeypatch.setattr(
-        "src.agent.fraud_agent.client.responses.create",
-        mock_create
+        "src.agent.fraud_agent.get_openai_client",
+        lambda: MockOpenAIClient()
     )
 
     result = investigate(FRAUD_TRANSACTION)
@@ -100,12 +105,9 @@ def test_agent_fraud(monkeypatch):
 
 def test_agent_returns_structured_result(monkeypatch):
 
-    def mock_create(*args, **kwargs):
-        return MockResponse()
-
     monkeypatch.setattr(
-        "src.agent.fraud_agent.client.responses.create",
-        mock_create
+        "src.agent.fraud_agent.get_openai_client",
+        lambda: MockOpenAIClient()
     )
 
     result = investigate(FRAUD_TRANSACTION)

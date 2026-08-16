@@ -14,7 +14,8 @@ from src.agent.tools import (
 # OpenAI Client
 # ==========================
 
-client = OpenAI()
+def get_openai_client():
+    return OpenAI()
 
 
 # ==========================
@@ -214,6 +215,7 @@ Important:
 - If the prediction is NORMAL, explain why standard processing is appropriate.
 """
 
+    client = get_openai_client()
     response = client.responses.create(
         model="gpt-5.6",
         instructions=SYSTEM_PROMPT,

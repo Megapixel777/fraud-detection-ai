@@ -1,4 +1,4 @@
-name: Deploy Cloud Run - Sklearn Test
+name: Deploy Cloud Run - Sklearn
 
 on:
   workflow_dispatch:
@@ -45,10 +45,13 @@ jobs:
           gcloud run deploy fraud-detection-api-sklearn \
             --image=europe-southwest1-docker.pkg.dev/gen-lang-client-0097541881/fraud-detection/fraud-detection-api:sklearn \
             --region=europe-southwest1 \
+            --project=gen-lang-client-0097541881 \
             --platform=managed \
             --allow-unauthenticated \
             --min-instances=0 \
             --max-instances=1 \
             --cpu=1 \
             --memory=1Gi \
-            --port=8000
+            --port=8000 \
+            --service-account=992568969638-compute@developer.gserviceaccount.com \
+            --set-secrets=OPENAI_API_KEY=openai-api-key:latest
